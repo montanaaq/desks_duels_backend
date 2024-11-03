@@ -1,7 +1,7 @@
 // routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const { findOrCreateUser, getUserByTelegramId, setRulesSeen } = require('../services/authService');
+const { findOrCreateUser, getUserByTelegramId, setRulesSeen, deleteUser } = require('../services/authService');
 
 // Telegram Web App Authentication
 router.post('/register', async (req, res) => {
@@ -51,5 +51,26 @@ router.post('/accept-rules', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
   });
+
+router.delete('/delete', async (req, res) => {
+  const { telegramId } = req.body;
+
+  if (!telegramId) {
+    return res.status(400).json({ message: 'Требуется поле telegramId' });
+  }
+
+  try {
+    const user = await getUserByTelegramId(telegramId);
+    if (user) {
+      await deleteUser(telegramId);
+      res.status(200).json({ message: 'Пользователь удален' });
+    } else {
+      res.status(404).json({ message: 'Пользователь не найден' });
+    }
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Ошибка сервера' });
+  }
+});
 
 module.exports = router;

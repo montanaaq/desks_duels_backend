@@ -48,5 +48,13 @@ const setRulesSeen = async (telegramId) => {
         console.error("Ошибка при обновлении правил:", error);
     }
 };
+const deleteUser = async (telegramId) => {
+    try {
+      await User.destroy({ where: { telegramId } });
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  };
 
-module.exports = { setRulesSeen, findOrCreateUser, getUserByTelegramId };
+module.exports = { setRulesSeen, findOrCreateUser, getUserByTelegramId, deleteUser };
