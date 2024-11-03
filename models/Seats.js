@@ -17,7 +17,7 @@ Seats.init({
         allowNull: false,
     },
     occupiedBy: {
-        type: DataTypes.INTEGER, // ID пользователя, который занял место
+        type: DataTypes.STRING, // ID пользователя, который занял место
         allowNull: true,
     },
     dueled: {
