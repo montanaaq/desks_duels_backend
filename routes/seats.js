@@ -28,5 +28,30 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+router.put('/:id/take', async (req, res) => {
+    try {
+      const seatId = req.params.id;
+      const { telegramId } = req.body;
+
+      if (!telegramId) {
+        return res.status(400).json({ error: 'telegramId is required in the request body' });
+      }  
+
+      const seat = await Seats.findOne({ where: { id: seatId } });
+
+      if (!seat) {
+        return res.status(404).json({ error: 'Seat not found' });
+      }
+
+      seat.occupiedBy = telegramId;
+
+      await seat.save();
+      res.status(200).json({ message: 'Место успешно занято!', seat });
+
+    } catch (error) {
+      console.error('Error updating seat:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 
 module.exports = router;
