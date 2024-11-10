@@ -4,7 +4,7 @@ const Seats = require('../models/Seats'); // Импорт модели Seats
 // Сброс всех мест
 async function resetAllSeats() {
 	try {
-		await Seats.update({occupiedBy: null, isRed: false}, {where: {}});
+		await Seats.update({occupiedBy: null, dueled: false}, {where: {}});
 		console.log("Все места успешно сброшены.");
 	} catch (error) {
 		console.error("Ошибка при сбросе мест:", error);

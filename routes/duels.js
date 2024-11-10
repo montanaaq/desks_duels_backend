@@ -1,82 +1,132 @@
+// routes/duels.js
+
 const express = require('express');
 const router = express.Router();
-const Duels = require('../models/Duels');
-const Seats = require('../models/Seats');
-const User = require('../models/User');
+const DuelService = require('../services/DuelService');
 
-// Получение всех дуэлей
-router.get('/', async (req, res) => {
-    try {
-        const duels = await Duels.findAll();
-        res.json(duels);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
+/**
+ * Маршрут для запроса дуэли
+ * Метод: POST
+ * Путь: /duels/request
+ * Тело запроса: { player1: string, player2: string, seatId: number }
+ */
 router.post('/request', async (req, res) => {
     const { player1, player2, seatId } = req.body;
-
     try {
-        const seat = await Seats.findByPk(seatId);
-        if (!seat || seat.dueled) {
-            return res.status(400).json({ message: 'Место недоступно для дуэли' });
-        }
-
-        const duel = await Duels.create({ player1, player2, seatId });
-        res.status(201).json({ message: 'Дуэль запрошена. У противника есть 1 минута для принятия дуэли, после чего дуэль будет завершена.', duel });
-
-        // Установим таймер для автоматического завершения дуэли, если она не принята
-        setTimeout(async () => {
-            const duelStatus = await Duels.findByPk(duel.id);
-            if (duelStatus && duelStatus.status === 'pending') {
-                await duelStatus.update({ status: 'timeout', winner: player1 });
-                await seat.update({ occupiedBy: player1, dueled: true });
-                console.log(`Время вышло! Место было занято: ${player1}`);
-            }
-        }, 60000); // 1 минута
+        const duel = await DuelService.requestDuel(player1, player2, seatId);
+        res.status(201).json({ 
+            message: 'Дуэль запрошена. У противника есть 1 минута для принятия дуэли, после чего дуэль будет завершена.', 
+            duel 
+        });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Ошибка при запросе дуэли:', error);
+        const errorMessage = error.message;
+
+        if (errorMessage.includes('player1, player2 и seatId обязательны.')) {
+            res.status(400).json({ error: errorMessage });
+        } else if (errorMessage.includes('Место не найдено.')) {
+            res.status(404).json({ error: errorMessage });
+        } else if (errorMessage.includes('Место не занято.')) {
+            res.status(409).json({ error: errorMessage });
+        } else if (errorMessage.includes('Место уже участвовало в дуэли.')) {
+            res.status(409).json({ error: errorMessage });
+        } else if (errorMessage.includes('Один из игроков уже участвует в активной дуэли.')) {
+            res.status(409).json({ error: errorMessage });
+        } else if (errorMessage.includes('Дуэль для этого места уже существует и находится в процессе.')) {
+            res.status(409).json({ error: errorMessage });
+        } else {
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
     }
 });
 
-// Принятие дуэли
-router.put('/:id/accept', async (req, res) => {
+/**
+ * Маршрут для принятия дуэли
+ * Метод: PUT
+ * Путь: /duels/:duelId/accept
+ */
+router.put('/:duelId/accept', async (req, res) => {
+    const { duelId } = req.params;
     try {
-        const duel = await Duels.findByPk(req.params.id);
-        if (!duel || duel.status !== 'pending') {
-            return res.status(400).json({ message: 'Неверная дуэль' });
-        }
-
-        await duel.update({ status: 'accepted' });
-        res.json({ message: 'Дуэль принята' });
+        const duel = await DuelService.acceptDuel(parseInt(duelId));
+        res.status(200).json({ message: 'Дуэль принята.', duel });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Ошибка при принятии дуэли:', error);
+        const errorMessage = error.message;
+
+        if (errorMessage.includes('Дуэль не найдена.')) {
+            res.status(404).json({ error: errorMessage });
+        } else if (errorMessage.includes('Дуэль не в статусе ожидания.')) {
+            res.status(409).json({ error: errorMessage });
+        } else {
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
     }
 });
-// Завершение дуэли
-router.put('/:id/complete', async (req, res) => {
+
+/**
+ * Маршрут для завершения дуэли
+ * Метод: PUT
+ * Путь: /duels/:duelId/complete
+ * Тело запроса: { winnerId: string }
+ */
+router.put('/:duelId/complete', async (req, res) => {
+    const { duelId } = req.params;
     const { winnerId } = req.body;
     try {
-        const duel = await Duels.findByPk(req.params.id);
-        if (!duel || duel.status !== 'accepted') {
-            return res.status(400).json({ message: 'Неверная дуэль' });
-        }
-
-        // Обновляем статус дуэли
-        await duel.update({ status: 'completed', winner: winnerId });
-
-        // Сбрасываем предыдущее место победителя
-        await Seats.update({ occupiedBy: null, dueled: false }, { where: { occupiedBy: winnerId } });
-        await User.update({ currentSeat: null }, { where: { id: winnerId } });
-
-        // Назначаем новое место победителя
-        await Seats.update({ occupiedBy: winnerId, dueled: true }, { where: { id: duel.seatId } });
-        await User.update({ currentSeat: duel.seatId }, { where: { id: winnerId } });
-
-        res.json({ message: 'Дуэль завершена, место назначено победителю', duel });
+        const duel = await DuelService.completeDuel(parseInt(duelId), winnerId);
+        res.status(200).json({ message: 'Дуэль завершена.', duel });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Ошибка при завершении дуэли:', error);
+        const errorMessage = error.message;
+
+        if (errorMessage.includes('Дуэль не найдена.')) {
+            res.status(404).json({ error: errorMessage });
+        } else if (errorMessage.includes('Дуэль не принята.')) {
+            res.status(409).json({ error: errorMessage });
+        } else {
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    }
+});
+
+/**
+ * Маршрут для отклонения дуэли
+ * Метод: PUT
+ * Путь: /duels/:duelId/decline
+ */
+router.put('/:duelId/decline', async (req, res) => {
+    const { duelId } = req.params;
+    try {
+        const duel = await DuelService.declineDuel(parseInt(duelId));
+        res.status(200).json({ message: 'Дуэль отклонена.', duel });
+    } catch (error) {
+        console.error('Ошибка при отклонении дуэли:', error);
+        const errorMessage = error.message;
+
+        if (errorMessage.includes('Дуэль не найдена.')) {
+            res.status(404).json({ error: errorMessage });
+        } else if (errorMessage.includes('Дуэль не в статусе ожидания.')) {
+            res.status(409).json({ error: errorMessage });
+        } else {
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    }
+});
+
+/**
+ * Маршрут для получения всех дуэлей по seatId
+ * Метод: GET
+ * Путь: /duels/seat/:seatId
+ */
+router.get('/seat/:seatId', async (req, res) => {
+    const { seatId } = req.params;
+    try {
+        const duels = await DuelService.getDuelsBySeat(seatId);
+        res.status(200).json({ duels });
+    } catch (error) {
+        console.error('Ошибка при получении дуэлей по seatId:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
     }
 });
 

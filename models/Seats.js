@@ -1,9 +1,11 @@
+// models/Seats.js
+
 const { Model, DataTypes } = require('sequelize');
-const { sequelize  } = require('../db');
+const { sequelize } = require('../db');
 
-class Seats extends Model {}
+class Seat extends Model {}
 
-Seats.init({
+Seat.init({
     rowNumber: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -17,16 +19,16 @@ Seats.init({
         allowNull: false,
     },
     occupiedBy: {
-        type: DataTypes.STRING, // ID пользователя, который занял место
+        type: DataTypes.STRING, // Telegram ID пользователя
         allowNull: true,
     },
     dueled: {
         type: DataTypes.BOOLEAN,
-        defaultValue: false, // Место можно использовать для дуэли только один раз
-    },
+        defaultValue: false, // Указывает, был ли проведён дуэль на этом месте
+    }
 }, {
     sequelize,
-    modelName: 'Seats',
+    modelName: 'Seat',
 });
 
-module.exports = Seats;
+module.exports = Seat;

@@ -1,3 +1,5 @@
+// models/User.js
+
 const { Model, DataTypes } = require('sequelize');
 const { sequelize } = require('../db');
 const Seat = require('./Seats'); // Импорт модели Seat
@@ -31,6 +33,10 @@ User.init({
         },
         allowNull: true,
     },
+    dueling: { // Новое поле для отслеживания дуэли
+        type: DataTypes.BOOLEAN,
+        defaultValue: false, // Указывает, участвует ли пользователь в дуэли
+    }
 }, {
     sequelize,
     modelName: 'User',
