@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const DuelService = require('../services/DuelService');
+const DuelService = require('./services/duelService');
 
 /**
  * Маршрут для запроса дуэли
