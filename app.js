@@ -7,7 +7,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { scheduleSeatReset } = require('./services/seatResetService');
 const { initializeSeats } = require('./services/initializeSeats');
-const { Duel, User, Seats } = require('./models'); // Import models from models/index.js
+const { User } = require('./models'); // Import models from models/index.js
 const DuelService = require('./services/duelService');
 const DuelTimeoutService = require('./services/DuelTimeoutService');
 require('dotenv').config();

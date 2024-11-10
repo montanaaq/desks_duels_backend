@@ -1,7 +1,7 @@
 // services/DuelTimeoutService.js
 
 const cron = require('node-cron');
-const DuelService = require('./services/duelService');
+const DuelService = require('./duelService')
 
 class DuelTimeoutService {
     static start() {
