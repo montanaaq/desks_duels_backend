@@ -34,6 +34,7 @@ Duel.init({
 }, {
     sequelize,
     modelName: 'Duel',
+    timestamps: true, // This adds createdAt and updatedAt automatically
     // Удаляем индексы из модели
     indexes: [
         // {
