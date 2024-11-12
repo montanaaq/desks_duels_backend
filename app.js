@@ -35,6 +35,11 @@ const io = new Server(server, {
     }
 });
 
+app.get('/health-check', (req, res) => {
+    res.status(200).send('OK');
+  });
+  
+
 // Socket.io connection event handling
 io.on("connection", (socket) => {
     console.log(`User connected: ${socket.id}`);
