@@ -5,6 +5,21 @@ const router = express.Router();
 const DuelService = require('../services/duelService');
 
 /**
+ * Маршрут для получения всех дуэлей
+ * Метод: GET
+ * Путь: /duels
+ */
+router.get('/', async (req, res) => {
+    try {
+      const duels = await DuelService.getAllDuels();
+      res.status(200).json(duels);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Ошибка при получении дуэлей' });
+    }
+  });
+
+/**
  * Маршрут для запроса дуэли
  * Метод: POST
  * Путь: /duels/request
