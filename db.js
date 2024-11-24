@@ -1,6 +1,8 @@
 // db.js
 
 const { Sequelize, DataTypes } = require('sequelize');
+const path = require('path');
+const fs = require('fs');
 
 // Настройка подключения к SQLite
 const sequelize = new Sequelize({
@@ -8,32 +10,92 @@ const sequelize = new Sequelize({
     storage: './database.sqlite', // Путь к файлу базы данных
     define: {
         freezeTableName: true, // Убирает автоматическое добавление 's' к имени таблицы
-        timestamps: false       // Убирает поля временных меток
+        timestamps: true       // Включаем временные метки
     },
-    logging: false              // Отключение логирования запросов
+    logging: false  // Disable logging
 });
 
-// Определение модели User
-const User = sequelize.define('User', {
-    name: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        unique: true
-    }
-    // Добавьте другие нужные поля здесь
-});
-
-// Функция для получения пользователя по имени
-
-// Синхронизация модели с базой данных
-sequelize.authenticate()
-    .then(() => console.log('Подключение к SQLite установлено'))
-    .then(() => sequelize.sync()) // Убедимся, что синхронизация выполнена после подключения
-    .then(() => console.log('Модель User синхронизирована с базой данных SQLite'))
-    .catch(error => console.error('Ошибка синхронизации модели с SQLite:', error));
-
-// Экспорт sequelize и функций
-module.exports = {
+// Create a context object to pass around
+const dbContext = {
     sequelize,
-    User,
+    DataTypes,
+    models: {}
 };
+
+// Функция для загрузки и инициализации моделей
+const loadModels = () => {
+    const modelsPath = path.join(__dirname, 'models');
+
+    // Read all model files
+    const modelFiles = fs.readdirSync(modelsPath)
+        .filter(file => file.endsWith('.js') && file !== 'index.js');
+
+    // First pass: require all model classes
+    const modelClasses = modelFiles.map(file => {
+        const modelPath = path.join(modelsPath, file);
+        return {
+            name: path.basename(file, '.js'),
+            ModelClass: require(modelPath)
+        };
+    });
+
+    // Second pass: initialize models
+    modelClasses.forEach(({ name, ModelClass }) => {
+        try {
+            // Initialize the model with sequelize and DataTypes
+            dbContext.models[name] = ModelClass.init(sequelize, DataTypes);
+        } catch (initError) {
+            console.error(`Error initializing model ${name}:`, initError);
+        }
+    });
+
+    // Third pass: set up associations
+    modelClasses.forEach(({ name, ModelClass }) => {
+        if (typeof ModelClass.associate === 'function') {
+            try {
+                ModelClass.associate(dbContext.models);
+            } catch (associationError) {
+                console.error(`Error setting up associations for ${name}:`, associationError);
+            }
+        }
+    });
+
+    return dbContext.models;
+};
+
+// Синхронизация моделей с базой данных
+const syncDatabase = async () => {
+    try {
+        // Load and initialize models
+        loadModels();
+        
+        // Sync all models with force: false to preserve data
+        await sequelize.sync({ 
+            force: false,  // Do not drop existing tables
+            alter: {
+                drop: false  // Prevent dropping columns
+            }
+        });
+        
+        return dbContext.models;
+    } catch (error) {
+        console.error('Error synchronizing database:', error);
+        throw error;
+    }
+};
+
+// Initialize database connection
+const initializeDatabaseConnection = async () => {
+    try {
+        await syncDatabase();
+    } catch (error) {
+        console.error('Failed to initialize database:', error);
+        process.exit(1);
+    }
+};
+
+// Call initialization
+initializeDatabaseConnection();
+
+// Export everything
+module.exports = dbContext;

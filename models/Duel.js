@@ -1,53 +1,75 @@
 // models/Duel.js
 
-const { Model, DataTypes, Op } = require('sequelize'); // Убедитесь, что Op импортирован
-const { sequelize } = require('../db');
+const { Model } = require('sequelize');
 
-class Duel extends Model {}
+class Duel extends Model {
+    static init(sequelize, DataTypes) {
+        if (!sequelize) {
+            throw new Error('Sequelize instance must be provided');
+        }
+        
+        if (!DataTypes) {
+            throw new Error('DataTypes must be provided');
+        }
 
-Duel.init({
-    id: {
-        type: DataTypes.INTEGER,
-        primaryKey: true,
-        autoIncrement: true,
-    },
-    player1: {
-        type: DataTypes.STRING,
-        allowNull: false,
-    },
-    player2: {
-        type: DataTypes.STRING,
-        allowNull: false,
-    },
-    seatId: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-    },
-    status: {
-        type: DataTypes.ENUM('pending', 'accepted', 'completed', 'declined'),
-        allowNull: false,
-    },
-    winner: {
-        type: DataTypes.STRING,
-        allowNull: true,
-    },
-}, {
-    sequelize,
-    modelName: 'Duel',
-    timestamps: true, // This adds createdAt and updatedAt automatically
-    // Удаляем индексы из модели
-    indexes: [
-        // {
-        //     unique: true,
-        //     fields: ['seatId'],
-        //     where: {
-        //         status: {
-        //             [Op.in]: ['pending', 'accepted'],
-        //         },
-        //     },
-        //     name: 'unique_active_duel_per_seat',
-        // },
-    ],
-});
+        return super.init({
+            id: {
+                type: DataTypes.INTEGER,
+                primaryKey: true,
+                autoIncrement: true,
+            },
+            player1: {
+                type: DataTypes.STRING,
+                allowNull: false,
+            },
+            player2: {
+                type: DataTypes.STRING,
+                allowNull: false,
+            },
+            seatId: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+            },
+            status: {
+                type: DataTypes.ENUM('pending', 'accepted', 'completed', 'declined', 'timeout'),
+                allowNull: false,
+                defaultValue: 'pending'
+            },
+            winner: {
+                type: DataTypes.STRING,
+                allowNull: true,
+            },
+            coinFlipResult: {
+                type: DataTypes.ENUM('Орёл', 'Решка'),
+                allowNull: true,
+            },
+        }, {
+            sequelize,
+            modelName: 'Duel',
+            timestamps: true,
+        });
+    }
+
+    static associate(models) {
+        // Explicitly define associations with unique aliases
+        if (models.User) {
+            this.belongsTo(models.User, { 
+                foreignKey: 'player1', 
+                as: 'initiator' 
+            });
+            this.belongsTo(models.User, { 
+                foreignKey: 'player2', 
+                as: 'opponent' 
+            });
+        }
+
+        if (models.Seats) {
+            this.belongsTo(models.Seats, { 
+                foreignKey: 'seatId', 
+                as: 'seat' 
+            });
+        }
+    }
+}
 
 module.exports = Duel;

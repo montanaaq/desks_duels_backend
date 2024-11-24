@@ -83,13 +83,11 @@ router.put('/:duelId/accept', async (req, res) => {
  * Маршрут для завершения дуэли
  * Метод: PUT
  * Путь: /duels/:duelId/complete
- * Тело запроса: { winnerId: string }
  */
 router.put('/:duelId/complete', async (req, res) => {
     const { duelId } = req.params;
-    const { winnerId } = req.body;
     try {
-        const duel = await DuelService.completeDuel(parseInt(duelId), winnerId);
+        const duel = await DuelService.completeDuel(parseInt(duelId));
         res.status(200).json({ message: 'Дуэль завершена.', duel });
     } catch (error) {
         console.error('Ошибка при завершении дуэли:', error);

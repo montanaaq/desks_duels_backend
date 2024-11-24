@@ -68,7 +68,7 @@ router.post('/:seatId/take', async (req, res) => {
         // Освобождаем предыдущее место, если оно существует
         if (currentSeat) {
             currentSeat.occupiedBy = null;
-            currentSeat.dueled = false; // Сброс дуэльного статуса
+            currentSeat.status = 'available'; // Сброс дуэльного статуса
             await currentSeat.save();
         }
 
@@ -83,6 +83,7 @@ router.post('/:seatId/take', async (req, res) => {
 
         // Занимаем новое место пользователем
         newSeat.occupiedBy = telegramId;
+        newSeat.status = 'occupied';  // Set status to 'occupied'
         await newSeat.save();
 
         res.status(200).json({ message: 'Место успешно занято.', newSeat });
