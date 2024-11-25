@@ -5,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
-const { scheduleSeatReset } = require('./services/seatResetService');
+const { setupBreakResetSchedule, setSocketIO } = require('./services/seatResetService');
 const { initializeSeats } = require('./services/initializeSeats');
 const { User, Seats } = require('./models');
 const DuelService = require('./services/duelService');
@@ -32,6 +32,23 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
   },
 });
+
+// Расписание уроков
+const schoolSchedule = [
+  { start: '08:00', end: '08:40', isBreak: false },
+  { start: '08:40', end: '08:50', isBreak: true },
+  { start: '08:50', end: '09:30', isBreak: false },
+  { start: '09:30', end: '09:40', isBreak: true },
+  { start: '09:40', end: '10:20', isBreak: false },
+  { start: '10:20', end: '10:40', isBreak: true },
+  { start: '10:40', end: '11:20', isBreak: false },
+  { start: '11:20', end: '11:40', isBreak: true },
+  { start: '11:40', end: '12:20', isBreak: false },
+  { start: '12:20', end: '12:30', isBreak: true },
+  { start: '12:30', end: '13:10', isBreak: false },
+  { start: '13:10', end: '13:20', isBreak: true },
+  { start: '13:20', end: '14:00', isBreak: false }
+];
 
 app.get('/health-check', (req, res) => {
   res.status(200).send('OK');
@@ -216,20 +233,36 @@ io.on("connection", (socket) => {
 });
 
 app.use('/', indexRouter);
-app.use('/auth', authRoutes);
 app.use('/users', usersRouter);
 app.use('/seats', seatsRouter);
 app.use('/duels', duelsRouter);
+app.use('/auth', authRoutes);
 
 DuelTimeoutService.start();
 
-sequelize.sync()
-  .then(async () => {
-    DuelService.initTimeoutCheck();
+// Инициализация при запуске приложения
+async function initializeApp() {
+  try {
+    // Синхронизация базы данных
+    await sequelize.sync();
+    
+    // Инициализация мест
     await initializeSeats();
-    scheduleSeatReset();
+  
+    // Передача Socket.IO в сервис сброса мест
+    setSocketIO(io);
+    
+    // Настройка сброса мест по расписанию уроков
+    setupBreakResetSchedule(schoolSchedule);
+    
+    // Запуск сервера
     server.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
+      console.log(`Сервер запущен на порту ${PORT}`);
     });
-  })
-  .catch(error => console.error('Error syncing database:', error));
+  } catch (error) {
+    console.error('Ошибка инициализации приложения:', error);
+  }
+}
+
+// Запуск приложения
+initializeApp();
