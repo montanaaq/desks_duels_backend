@@ -60,7 +60,7 @@ class DuelService {
                 try {
                     await transaction.rollback();
                 } catch (rollbackError) {
-                    // Silently handle rollback errors
+                    console.log(rollbackError)
                 }
             }
             throw error;
