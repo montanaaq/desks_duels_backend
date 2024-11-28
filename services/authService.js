@@ -1,6 +1,7 @@
 // services/authService.js
 
 const dbContext = require('../db');
+const { Op } = require('sequelize');
 
 // Функция для поиска пользователя по telegramId
 const findOrCreateUser = async ({ telegramId, name, username }) => {
@@ -79,10 +80,43 @@ const setRulesSeen = async (telegramId) => {
 };
 
 const deleteUser = async (telegramId) => {
+    const { User, Duel, Seats } = dbContext.models;
+    const transaction = await dbContext.sequelize.transaction();
+
     try {
-        const User = dbContext.models.User;
-        await User.destroy({ where: { telegramId } });
+        // 1. Delete all duels associated with this user
+        await Duel.destroy({ 
+            where: { 
+                [Op.or]: [
+                    { player1: telegramId },
+                    { player2: telegramId }
+                ] 
+            },
+            transaction 
+        });
+
+        // 2. Update seats occupied by this user
+        await Seats.update(
+            { occupiedBy: null, status: 'available' }, 
+            { 
+                where: { occupiedBy: telegramId },
+                transaction 
+            }
+        );
+
+        // 3. Delete the user
+        const deletedUserCount = await User.destroy({ 
+            where: { telegramId },
+            transaction 
+        });
+
+        // Commit the transaction
+        await transaction.commit();
+
+        return deletedUserCount > 0;
     } catch (error) {
+        // Rollback the transaction in case of error
+        await transaction.rollback();
         console.error('Error deleting user:', error);
         throw error;
     }
