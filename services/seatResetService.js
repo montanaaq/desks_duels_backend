@@ -12,7 +12,7 @@ function setSocketIO(socketIO) {
 // Сброс всех мест
 async function resetAllSeats() {
 	try {
-		await Seats.update({occupiedBy: null, dueled: false}, {where: {}});
+		await Seats.update({occupiedBy: null, status: 'available'}, {where: {}});
 		console.log("Все места успешно сброшены.");
 		
 		// Если Socket.IO настроен, отправляем обновление всем клиентам
