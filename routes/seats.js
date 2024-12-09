@@ -60,17 +60,31 @@ router.post('/:seatId/take', async (req, res) => {
     const { telegramId } = req.body;
 
     try {
+        // Check if user is involved in any active duels
+        const Duel = require('../models/Duel');
+        const { Op } = require('sequelize');
+        const activeDuel = await Duel.findOne({
+            where: {
+                [Op.or]: [
+                    { player1: telegramId },
+                    { player2: telegramId }
+                ],
+                status: {
+                    [Op.in]: ['pending', 'accepted']
+                }
+            }
+        });
+
+        if (activeDuel) {
+            return res.status(409).json({ 
+                error: 'Вы не можете занять новое место, пока участвуете в активной дуэли.' 
+            });
+        }
+
         // Находим текущее место, которое занимает пользователь
         const currentSeat = await Seats.findOne({
             where: { occupiedBy: telegramId }
         });
-
-        // Освобождаем предыдущее место, если оно существует
-        if (currentSeat) {
-            currentSeat.occupiedBy = null;
-            currentSeat.status = 'available'; // Сброс дуэльного статуса
-            await currentSeat.save();
-        }
 
         // Проверяем, свободно ли запрашиваемое место
         const newSeat = await Seats.findByPk(seatId);
@@ -81,10 +95,31 @@ router.post('/:seatId/take', async (req, res) => {
             return res.status(409).json({ error: 'Место уже занято.' });
         }
 
+        // Если у пользователя уже есть место с дуэлью, не позволяем занять новое
+        if (currentSeat && currentSeat.status === 'dueled') {
+            return res.status(409).json({ 
+                error: 'Вы не можете занять новое место, пока у вас есть место с активной дуэлью.' 
+            });
+        }
+
+        // Освобождаем предыдущее место, если оно существует
+        if (currentSeat) {
+            currentSeat.occupiedBy = null;
+            currentSeat.status = 'available';
+            await currentSeat.save();
+        }
+
         // Занимаем новое место пользователем
         newSeat.occupiedBy = telegramId;
-        newSeat.status = 'occupied';  // Set status to 'occupied'
+        newSeat.status = 'occupied';
         await newSeat.save();
+
+        // Update user's currentSeat in the User model
+        const User = require('../models/User');
+        await User.update(
+            { currentSeat: seatId },
+            { where: { telegramId } }
+        );
 
         res.status(200).json({ message: 'Место успешно занято.', newSeat });
     } catch (error) {

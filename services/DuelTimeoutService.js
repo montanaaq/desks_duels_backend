@@ -12,6 +12,7 @@ class DuelTimeoutService {
                 const Duels = require('../models/Duel');
                 const { Op } = require('sequelize');
                 const sequelize = require('../db').sequelize;
+                const io = global.io; // Используем глобальный io
 
                 const timeoutThreshold = new Date(Date.now() - 5 * 60 * 1000); // 5 минут назад
 
@@ -27,7 +28,32 @@ class DuelTimeoutService {
 
                 for (const duel of duelsToTimeout) {
                     console.log(`Таймаут дуэли: duel.id=${duel.id}`);
-                    await DuelService.declineDuel(duel.id);
+                    const result = await DuelService.declineDuel(duel.id, true);
+
+                    // Уведомляем участников дуэли через socket
+                    if (io) {
+                        // Отправляем обновление всех измененных мест всем клиентам
+                        io.emit('seatsUpdated', result.updatedSeats);
+
+                        // Уведомляем участников дуэли
+                        io.to(duel.player1).emit('duelTimeout', {
+                            duel: {
+                                seatId: duel.seatId,
+                                player1: duel.player1,
+                                player2: duel.player2,
+                                isTimeout: true
+                            }
+                        });
+
+                        io.to(duel.player2).emit('duelTimeout', {
+                            duel: {
+                                seatId: duel.seatId,
+                                player1: duel.player1,
+                                player2: duel.player2,
+                                isTimeout: true
+                            }
+                        });
+                    }
                 }
             } catch (error) {
                 console.error('Ошибка при проверке таймаутов дуэлей:', error);

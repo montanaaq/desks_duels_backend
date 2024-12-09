@@ -33,6 +33,14 @@ const io = new Server(server, {
   },
 });
 
+// Делаем io доступным глобально
+global.io = io;
+module.exports = app;
+module.exports.get = (key) => {
+  if (key === 'io') return global.io;
+  return undefined;
+};
+
 // Расписание уроков
 const schoolSchedule = [
   { start: '08:00', end: '08:40', isBreak: false },
@@ -216,8 +224,12 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const duel = await DuelService.declineDuel(duelId);
+      const { duel, updatedSeats } = await DuelService.declineDuel(duelId);
 
+      // Отправляем обновление всех измененных мест всем клиентам
+      io.emit('seatsUpdated', updatedSeats);
+
+      // Отправляем уведомление об отклонении дуэли инициатору
       io.to(duel.player1).emit("duelDeclined", {
         duelId: duel.id,
         challengedId: duel.player2,

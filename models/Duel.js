@@ -31,7 +31,7 @@ class Duel extends Model {
                 allowNull: false,
             },
             status: {
-                type: DataTypes.ENUM('pending', 'accepted', 'completed', 'declined', 'timeout'),
+                type: DataTypes.ENUM('pending', 'accepted', 'completed', 'declined'),
                 allowNull: false,
                 defaultValue: 'pending'
             },

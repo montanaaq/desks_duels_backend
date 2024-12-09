@@ -109,21 +109,64 @@ router.put('/:duelId/complete', async (req, res) => {
  * Путь: /duels/:duelId/decline
  */
 router.put('/:duelId/decline', async (req, res) => {
-    const { duelId } = req.params;
     try {
-        const duel = await DuelService.declineDuel(parseInt(duelId));
-        res.status(200).json({ message: 'Дуэль отклонена.', duel });
+        const { duelId } = req.params;
+        const { isTimeout } = req.body;
+
+        console.log(`Attempting to decline duel ${duelId}, isTimeout: ${isTimeout}`);
+
+        const result = await DuelService.declineDuel(parseInt(duelId), isTimeout);
+        
+        // If the duel is already in a final state, return 200 with the message
+        if (!result.success && (
+            result.message.includes('завершена') || 
+            result.message.includes('отклонена') || 
+            result.message.includes('таймауту')
+        )) {
+            return res.status(200).json(result);
+        }
+
+        // For actual errors, return 400
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        const io = global.io;
+        if (io) {
+            // Отправляем обновление всех измененных мест всем клиентам
+            if (result.updatedSeats) {
+                io.emit('seatsUpdated', result.updatedSeats);
+            }
+
+            // Уведомляем участников дуэли
+            if (result.duel) {
+                const notification = {
+                    duel: {
+                        seatId: result.duel.seatId,
+                        player1: result.duel.player1,
+                        player2: result.duel.player2,
+                        isTimeout: isTimeout || false
+                    }
+                };
+
+                const eventName = isTimeout ? 'duelTimeout' : 'duelDeclined';
+                
+                if (result.duel.player1) {
+                    io.to(result.duel.player1).emit(eventName, notification);
+                }
+                if (result.duel.player2) {
+                    io.to(result.duel.player2).emit(eventName, notification);
+                }
+            }
+        }
+
+        return res.json(result);
     } catch (error) {
         console.error('Ошибка при отклонении дуэли:', error);
-        const errorMessage = error.message;
-
-        if (errorMessage.includes('Дуэль не найдена.')) {
-            res.status(404).json({ error: errorMessage });
-        } else if (errorMessage.includes('Дуэль не в статусе ожидания.')) {
-            res.status(409).json({ error: errorMessage });
-        } else {
-            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
-        }
+        res.status(500).json({ 
+            success: false, 
+            message: 'Внутренняя ошибка сервера при отклонении дуэли' 
+        });
     }
 });
 
@@ -140,6 +183,31 @@ router.get('/seat/:seatId', async (req, res) => {
     } catch (error) {
         console.error('Ошибка при получении дуэлей по seatId:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+    }
+});
+
+/**
+ * Маршрут для получения тайм-аут дуэлей для пользователя
+ * Метод: GET
+ * Путь: /duels/timed-out
+ * Параметр запроса: telegramId
+ */
+router.get('/timed-out', async (req, res) => {
+    const { telegramId } = req.query;
+
+    if (!telegramId) {
+        return res.status(400).json({ error: 'Telegram ID обязателен' });
+    }
+
+    try {
+        const timedOutDuels = await DuelService.getTimedOutDuelsForUser(telegramId);
+        res.status(200).json(timedOutDuels);
+    } catch (error) {
+        console.error('Ошибка при получении тайм-аут дуэлей:', error);
+        res.status(500).json({ 
+            error: 'Не удалось получить тайм-аут дуэли', 
+            details: error.message 
+        });
     }
 });
 
