@@ -83,8 +83,6 @@ io.on("connection", (socket) => {
     try {
       console.log('Received requestInitialSeats from client:', socket.id);
       const seats = await Seats.findAll();
-      console.log('Sending initial seats data:', seats);
-      socket.emit('seatsUpdated', seats);
     } catch (error) {
       console.error('Error sending initial seats:', error);
     }
@@ -110,7 +108,6 @@ io.on("connection", (socket) => {
 
   socket.on('updateSeat', async (data) => {
     try {
-      console.log('Received updateSeat event:', data);
       const { seatId, userId } = data;
 
       if (!seatId || !userId) {

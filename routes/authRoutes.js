@@ -14,7 +14,7 @@ router.post('/register', async (req, res) => {
   try {
     const user = await findOrCreateUser({ telegramId, name: firstName, username });
     
-    // Return user data with a success message
+  // Return user data with a success message
     res.status(200).json({ message: 'Пользователь успешно зарегестрирован', user });
   } catch (error) {
     console.error('Telegram Auth error:', error);

@@ -247,7 +247,7 @@ class DuelService {
                     return; // Дуэль уже завершена или не в ожидании
                 }
 
-                const result = await this.declineDuel(duelId, true);
+                const result = await declineDuel(duelId, true);
                 if (result.success) {
                     console.log(`Дуэль ${duelId} автоматически отклонена по истечении времени`);
                     
@@ -522,38 +522,43 @@ class DuelService {
                 if (!duel) {
                     throw new Error('Дуэль не найдена');
                 }
-
+    
                 // Обновляем статус дуэли на "отклонено"
                 await duel.update({ status: 'declined', isAutoDeclined }, { transaction });
-
+    
                 // Если дуэль отклонена автоматически, присваиваем место инициатору
                 if (isAutoDeclined) {
                     // Очищаем предыдущие места обоих игроков
                     await dbContext.models.Seat.update(
                         { currentUser: null },
                         {
-                            where: {
-                                currentUser: {
-                                    [Op.in]: [duel.player1, duel.player2]
-                                }
-                            },
+                            where: { userId: { [Op.in]: [duel.player1, duel.player2] } },
                             transaction
                         }
                     );
-
+    
                     // Присваиваем оспариваемое место инициатору дуэли
-                    const updatedSeat = await dbContext.models.Seat.update(
+                    const [updatedRowsCount, updatedSeats] = await dbContext.models.Seat.update(
                         { currentUser: duel.player1 },
                         {
                             where: { id: duel.seatId },
+                            returning: true, // Чтобы получить обновленные строки
                             transaction
                         }
                     );
-
+    
+                    // Если ни одна строка не была обновлена
+                    if (updatedRowsCount === 0) {
+                        throw new Error('Не удалось обновить место');
+                    }
+    
+                    // Возвращаем обновленные места
+                    const updatedSeat = updatedSeats[0];
+    
                     await transaction.commit();
                     return { duel, updatedSeats: [updatedSeat] };
                 }
-
+    
                 await transaction.commit();
                 return { duel, updatedSeats: [] };
             } catch (error) {
@@ -562,7 +567,7 @@ class DuelService {
                 throw error;
             }
         };
-
+    
         try {
             return await DuelService.retryOperation(performDecline, 5, 1000);
         } catch (error) {
@@ -570,7 +575,8 @@ class DuelService {
             throw error;
         }
     }
-
+    
+    
     /**
      * Выполняет операцию с повторными попытками в случае ошибки
      * @param {Function} operation - Операция для выполнения
