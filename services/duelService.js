@@ -432,7 +432,7 @@ class DuelService {
 
                 const seat = await dbContext.models.Seats.findByPk(duel.seatId, { transaction });
                 if (seat) {
-                    seat.status = 'dueled';  
+                    seat.status = 'dueled';
                     await seat.save({ transaction });
                     console.log(`[Завершение дуэли] Место ${duel.seatId} помечено как завершенное`);
                     

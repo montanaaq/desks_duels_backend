@@ -95,14 +95,7 @@ router.post('/:seatId/take', async (req, res) => {
             return res.status(409).json({ error: 'Место уже занято.' });
         }
 
-        // Если у пользователя уже есть место с дуэлью, не позволяем занять новое
-        if (currentSeat && currentSeat.status === 'dueled') {
-            return res.status(409).json({ 
-                error: 'Вы не можете занять новое место, пока у вас есть место с активной дуэлью.' 
-            });
-        }
-
-        // Освобождаем предыдущее место, если оно существует
+        // Освобождаем предыдущее место, если оно существует, независимо от его статуса
         if (currentSeat) {
             currentSeat.occupiedBy = null;
             currentSeat.status = 'available';
