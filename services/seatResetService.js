@@ -13,7 +13,6 @@ function setSocketIO(socketIO) {
 async function resetAllSeats() {
 	try {
 		await Seats.update({occupiedBy: null, status: 'available'}, {where: {}});
-		console.log("Все места успешно сброшены.");
 		
 		// Если Socket.IO настроен, отправляем обновление всем клиентам
 		if (io) {
@@ -34,7 +33,6 @@ async function resetSeatsAfterBreak() {
 		}, {
 			where: {} // Сбрасываем все места после перемены
 		});
-		console.log("Места после перемены успешно сброшены.");
 		
 		// Если Socket.IO настроен, отправляем обновление всем клиентам
 		if (io) {
@@ -57,7 +55,6 @@ function setupBreakResetSchedule(schoolSchedule) {
 			const cronExpression = `${startMinute} ${startHour} * * 1-5`;
 			
 			cron.schedule(cronExpression, resetSeatsAfterBreak);
-			console.log(`Запланирован сброс мест в ${period.start} перед уроком`);
 		}
 	});
 }

@@ -118,7 +118,7 @@ router.put('/:duelId/decline', async (req, res) => {
         const result = await DuelService.declineDuel(parseInt(duelId), isTimeout);
         
         // If the duel is already in a final state, return 200 with the message
-        if (!result.success && (
+        if (!result.success && result.message && (
             result.message.includes('завершена') || 
             result.message.includes('отклонена') || 
             result.message.includes('таймауту')
@@ -209,6 +209,34 @@ router.get('/timed-out', async (req, res) => {
             details: error.message 
         });
     }
+});
+
+/**
+ * Маршрут для отклонения дуэли
+ * Метод: POST
+ * Путь: /duels/decline/:duelId
+ */
+router.post('/decline/:duelId', async (req, res) => {
+  try {
+    const { duelId } = req.params;
+    const result = await DuelService.declineDuel(duelId);
+    
+    if (result.success) {
+      // Отправляем событие всем клиентам об отклонении дуэли
+      req.app.io.emit('duelDeclined', {
+        success: true,
+        message: 'Дуэль отклонена',
+        duel: result.duel
+      });
+      
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('Error declining duel:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 module.exports = router;

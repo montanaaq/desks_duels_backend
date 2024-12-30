@@ -12,7 +12,22 @@ const sequelize = new Sequelize({
         freezeTableName: true, // Убирает автоматическое добавление 's' к имени таблицы
         timestamps: true       // Включаем временные метки
     },
-    logging: false  // Disable logging
+    logging: false,  // Disable logging
+    dialectOptions: {
+        // SQLite connection options
+        timeout: 15000, // Timeout in ms before throwing a SQLITE_BUSY error
+        busyTimeout: 15000, // Time to wait for a lock to be released
+    },
+    pool: {
+        max: 5, // Maximum number of connection in pool
+        min: 0, // Minimum number of connection in pool
+        acquire: 30000, // Maximum time (ms) that pool will try to get connection before throwing error
+        idle: 10000 // Maximum time (ms) that a connection can be idle before being released
+    },
+    retry: {
+        match: [/SQLITE_BUSY/],
+        max: 3 // Maximum amount of tries
+    }
 });
 
 // Create a context object to pass around

@@ -10,6 +10,7 @@ const { initializeSeats } = require('./services/initializeSeats');
 const { User, Seats } = require('./models');
 const DuelService = require('./services/duelService');
 const DuelTimeoutService = require('./services/DuelTimeoutService');
+const retryOperation = require('./utils/retryOperation');
 require('dotenv').config();
 
 const app = express();
@@ -111,45 +112,49 @@ io.on("connection", (socket) => {
       const { seatId, userId } = data;
 
       if (!seatId || !userId) {
-        console.log('Missing seatId or userId:', { seatId, userId });
-        socket.emit('error', { message: 'Seat ID and User ID are required.' });
+        socket.emit('error', { message: 'Необходимо указать ID места и ID пользователя.' });
         return;
       }
 
-      // Find and clear the user's previous seat if exists
-      const previousSeat = await Seats.findOne({ where: { occupiedBy: userId } });
-      if (previousSeat) {
-        previousSeat.occupiedBy = null;
-        await previousSeat.save();
-      }
+      await retryOperation(async () => {
+        // Находим и освобождаем предыдущее место пользователя
+        const previousSeat = await Seats.findOne({ 
+          where: { occupiedBy: userId }
+        });
+        
+        if (previousSeat) {
+          await Seats.update(
+            { occupiedBy: null },
+            { where: { id: previousSeat.id } }
+          );
+        }
 
-      // Update the new seat in the database
-      const seat = await Seats.findOne({ where: { id: seatId } });
-      if (!seat) {
-        console.log('Seat not found:', seatId);
-        socket.emit('error', { message: 'Seat not found.' });
-        return;
-      }
+        // Проверяем и обновляем новое место
+        const seat = await Seats.findOne({ 
+          where: { id: seatId }
+        });
+        
+        if (!seat) {
+          throw { message: 'Место не найдено.' };
+        }
 
-      if (seat.occupiedBy) {
-        console.log('Seat already occupied:', { seatId, currentOccupant: seat.occupiedBy });
-        socket.emit('error', { message: 'Seat is already occupied.' });
-        return;
-      }
+        if (seat.occupiedBy) {
+          throw { message: 'Место уже занято.' };
+        }
 
-      // Update seat status
-      seat.occupiedBy = userId;
-      await seat.save();
+        // Обновляем статус места
+        await Seats.update(
+          { occupiedBy: userId },
+          { where: { id: seatId } }
+        );
+      });
 
-      // Get all seats and broadcast the update
+      // Получаем обновленный список мест и отправляем всем клиентам
       const seats = await Seats.findAll();
-      console.log('Broadcasting updated seats to all clients:', seats);
       io.emit('seatsUpdated', seats);
-
-      console.log(`Seat ${seatId} successfully occupied by user ${userId}, previous seat cleared`);
     } catch (error) {
-      console.error('Error updating seat:', error);
-      socket.emit('error', { message: 'Failed to update seat.' });
+      console.error('Ошибка при обновлении места:', error);
+      socket.emit('error', { message: error.message || 'Не удалось обновить место.' });
     }
   });
 
@@ -190,7 +195,9 @@ io.on("connection", (socket) => {
 
       const duel = await DuelService.acceptDuel(duelId);
 
-      io.to(duel.player1).emit("showDuelRoles", {
+      // Отправляем событие принятия дуэли всем участникам
+      io.to(duel.player1).emit("duelAccepted", {
+        duelId: duel.id,
         roleMessage: "Вы 'Орёл' в этой дуэли!",
         request: {
           duelId: duel.id,
@@ -199,7 +206,8 @@ io.on("connection", (socket) => {
         },
       });
 
-      io.to(duel.player2).emit("showDuelRoles", {
+      io.to(duel.player2).emit("duelAccepted", {
+        duelId: duel.id,
         roleMessage: "Вы 'Решка' в этой дуэли!",
         request: {
           duelId: duel.id,
@@ -221,17 +229,55 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const { duel, updatedSeats } = await DuelService.declineDuel(duelId);
+      const result = await DuelService.declineDuel(duelId);
+
+      // Проверяем успешность операции
+      if (!result.success) {
+        socket.emit('error', { message: result.message || 'Failed to decline duel.' });
+        return;
+      }
+
+      const { duel, updatedSeats } = result;
+
+      // Проверяем наличие duel и его свойств
+      if (!duel || !duel.player1 || !duel.player2 || !duel.seatId) {
+        socket.emit('error', { message: 'Invalid duel data.' });
+        return;
+      }
 
       // Отправляем обновление всех измененных мест всем клиентам
-      io.emit('seatsUpdated', updatedSeats);
+      if (updatedSeats) {
+        io.emit('seatsUpdated', updatedSeats);
+      }
 
-      // Отправляем уведомление об отклонении дуэли инициатору
+      // Находим информацию о пользователях
+      const initiator = await User.findOne({ where: { telegramId: duel.player1 } });
+      const opponent = await User.findOne({ where: { telegramId: duel.player2 } });
+
+      // Отправляем уведомление об отклонении дуэли обоим участникам
       io.to(duel.player1).emit("duelDeclined", {
         duelId: duel.id,
         challengedId: duel.player2,
+        message: "Вы заняли место, так как оппонент отклонил дуэль.",
+        duel: {
+          seatId: duel.seatId,
+          player1: duel.player1,
+          player2: duel.player2
+        }
+      });
+
+      io.to(duel.player2).emit("duelDeclined", {
+        duelId: duel.id,
+        challengedId: duel.player2,
+        message: `${initiator?.name || 'Инициатор'} занял место #${duel.seatId}, так как вы отклонили дуэль.`,
+        duel: {
+          seatId: duel.seatId,
+          player1: duel.player1,
+          player2: duel.player2
+        }
       });
     } catch (error) {
+      console.error('Error in declineDuel handler:', error);
       socket.emit('error', { message: error.message || 'Failed to decline duel.' });
     }
   });

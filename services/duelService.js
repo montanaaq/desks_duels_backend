@@ -285,85 +285,94 @@ class DuelService {
      * @param {number} duelId - ID дуэли для принятия.
      * @returns {Promise<Duel>} - Обновленный объект дуэли.
      */
-    static async acceptDuel(duelId) {
-        const transaction = await dbContext.sequelize.transaction();
-    
-        try {
-            const duel = await dbContext.models.Duel.findByPk(duelId, { 
-                transaction,
-                include: [
-                    { 
-                        model: dbContext.models.User, 
-                        as: 'initiator', 
-                        attributes: ['telegramId', 'dueling'] 
-                    },
-                    { 
-                        model: dbContext.models.User, 
-                        as: 'opponent', 
-                        attributes: ['telegramId', 'dueling'] 
-                    }
-                ]
-            });
-    
-            if (!duel) {
-                throw new Error('Дуэль не найдена.');
-            }
-    
-            // Проверяем, что дуэль имеет статус 'pending'
-            if (duel.status !== 'pending') {
+    static async acceptDuel(duelId, retries = 5) {
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            let transaction;
+            try {
+                transaction = await dbContext.sequelize.transaction({
+                    isolationLevel: Sequelize.Transaction.ISOLATION_LEVELS.SERIALIZABLE
+                });
+
+                console.log(`[Принятие дуэли] Попытка ${attempt}: duelId=${duelId}`);
+
+                const duel = await dbContext.models.Duel.findByPk(duelId, {
+                    transaction,
+                    lock: true,
+                    include: [
+                        { model: dbContext.models.User, as: 'initiator' },
+                        { model: dbContext.models.User, as: 'opponent' }
+                    ]
+                });
+
+                if (!duel) {
+                    await transaction.rollback();
+                    lastError = new Error('Дуэль не найдена');
+                    throw lastError;
+                }
+
                 if (duel.status === 'accepted') {
-                    await transaction.commit();
+                    await transaction.rollback();
+                    // Если дуэль уже принята, считаем это успехом
                     return duel;
                 }
-                
-                throw new Error(`Нельзя принять дуэль в статусе ${duel.status}`);
-            }
-    
-            // Проверяем, не истек ли таймаут дуэли
-            const sixtySecondsAgo = new Date(Date.now() - 60000);
-            if (duel.createdAt < sixtySecondsAgo) {
-                duel.status = 'timeout';
-                await duel.save({ transaction });
-                await transaction.commit();
-                return duel;
-            }
-    
-            // Проверяем, доступны ли оба игрока для дуэли
-            const player1 = await dbContext.models.User.findOne({ 
-                where: { telegramId: duel.player1 }, 
-                transaction 
-            });
-            const player2 = await dbContext.models.User.findOne({ 
-                where: { telegramId: duel.player2 }, 
-                transaction 
-            });
-    
-            if (!player1 || !player2) {
-                throw new Error('Игроки не найдены');
-            }
-    
-            // Обновляем статус дуэли на 'accepted'
-            duel.status = 'accepted';
-            await duel.save({ transaction });
-    
-            // Обновляем статус дуэли для обоих игроков
-            player1.dueling = true;
-            player2.dueling = true;
-            await player1.save({ transaction });
-            await player2.save({ transaction });
-    
-            await transaction.commit();
-            return duel;
-        } catch (error) {
-            if (transaction.finished !== 'commit' && transaction.finished !== 'rollback') {
-                try {
+
+                if (duel.status !== 'pending') {
                     await transaction.rollback();
-                } catch (rollbackError) {
-                    // Silently handle rollback errors
+                    lastError = new Error(`Нельзя принять дуэль в статусе ${duel.status}`);
+                    throw lastError;
                 }
+
+                // Обновляем статус дуэли
+                duel.status = 'accepted';
+                await duel.save({ transaction });
+
+                // Обновляем статус участников
+                await dbContext.models.User.update(
+                    { dueling: true },
+                    {
+                        where: {
+                            telegramId: {
+                                [Op.in]: [duel.player1, duel.player2]
+                            }
+                        },
+                        transaction
+                    }
+                );
+
+                await transaction.commit();
+                console.log(`[Принятие дуэли] Дуэль ${duelId} успешно принята`);
+                return duel;
+
+            } catch (error) {
+                if (transaction) {
+                    try {
+                        await transaction.rollback();
+                    } catch (rollbackError) {
+                        // Игнорируем ошибку отката, если транзакция уже завершена
+                        if (!rollbackError.message.includes('has been finished')) {
+                            console.error('[Принятие дуэли] Ошибка при откате транзакции:', rollbackError);
+                        }
+                    }
+                }
+
+                // Проверяем, является ли это ошибкой блокировки базы данных
+                if (error.name === 'SequelizeTimeoutError' || 
+                    (error.parent && error.parent.code === 'SQLITE_BUSY')) {
+                    console.warn(`[Принятие дуэли] База данных заблокирована. Повторная попытка через ${attempt * 1000}мс...`);
+                    lastError = error;
+                    await delay(attempt * 1000); // Экспоненциальный откат
+                    continue;
+                }
+                
+                lastError = error;
+                throw error;
             }
-            throw error;
         }
+
+        throw lastError || new Error('Не удалось принять дуэль после максимального количества повторов');
     }
 
     /**
@@ -420,6 +429,7 @@ class DuelService {
                 // Случайно выбираем победителя
                 const isInitiatorWinner = Math.random() < 0.5;
                 const winnerId = isInitiatorWinner ? duel.player1 : duel.player2;
+                const loserId = isInitiatorWinner ? duel.player2 : duel.player1;
                 
                 // Определяем результат подбрасывания монеты
                 const coinFlipResult = isInitiatorWinner ? 'Орёл' : 'Решка';
@@ -430,50 +440,51 @@ class DuelService {
                 duel.coinFlipResult = coinFlipResult;
                 await duel.save({ transaction });
 
+                // Очищаем все предыдущие места победителя и проигравшего
+                await dbContext.models.Seats.update(
+                    { 
+                        occupiedBy: null,
+                        status: 'available'
+                    },
+                    {
+                        where: { 
+                            occupiedBy: {
+                                [Op.in]: [winnerId, loserId]
+                            }
+                        },
+                        transaction
+                    }
+                );
+
+                // Присваиваем оспариваемое место победителю
                 const seat = await dbContext.models.Seats.findByPk(duel.seatId, { transaction });
                 if (seat) {
+                    seat.occupiedBy = winnerId;
                     seat.status = 'dueled';
                     await seat.save({ transaction });
-                    console.log(`[Завершение дуэли] Место ${duel.seatId} помечено как завершенное`);
-                    
-                    // Используем updateSeatStatus из app.js
-                    const updateSeatStatus = require('../app').updateSeatStatus;
-                    if (updateSeatStatus) {
-                        await updateSeatStatus(duel.seatId);
-                    }
+                    console.log(`[Завершение дуэли] Место ${duel.seatId} присвоено победителю ${winnerId}`);
                 }
-                
+
                 // Сбрасываем статус дуэли для обоих игроков
                 await dbContext.models.User.update(
-                    { dueling: false },
+                    { 
+                        dueling: false,
+                        currentSeat: null  // Сначала очищаем текущее место у всех
+                    },
                     { 
                         where: { telegramId: { [Op.in]: [duel.player1, duel.player2] } },
                         transaction 
                     }
                 );
 
-                // Находим и обновляем любые красные места, принадлежащие проигравшему
-                const loserId = isInitiatorWinner ? duel.player2 : duel.player1;
-                const loserRedSeat = await dbContext.models.Seats.findOne({
-                    where: { 
-                        occupiedBy: loserId,
-                        status: 'dueled'
-                    },
-                    transaction
-                });
-
-                if (loserRedSeat) {
-                    loserRedSeat.occupiedBy = null;
-                    loserRedSeat.status = 'available';
-                    await loserRedSeat.save({ transaction });
-                    console.log(`[Завершение дуэли] Место проигравшего ${loserRedSeat.id} помечено как доступное`);
-                    
-                    // Обновляем статус места в режиме реального времени
-                    const updateSeatStatus = require('../app').updateSeatStatus;
-                    if (updateSeatStatus) {
-                        await updateSeatStatus(loserRedSeat.id);
+                // Устанавливаем новое место только победителю
+                await dbContext.models.User.update(
+                    { currentSeat: duel.seatId },
+                    { 
+                        where: { telegramId: winnerId },
+                        transaction 
                     }
-                }
+                );
 
                 await transaction.commit();
                 console.log(`[Завершение дуэли] Дуэль ${duelId} завершена. Победитель: ${winnerId}`);
@@ -512,67 +523,104 @@ class DuelService {
      * @returns {Promise<{ duel: Duel, updatedSeats: Array<Seat> }>} - Обновленные объекты дуэли и места.
      */
     static async declineDuel(duelId, isAutoDeclined = false) {
-        const performDecline = async () => {
-            const transaction = await dbContext.sequelize.transaction({
-                isolationLevel: Sequelize.Transaction.ISOLATION_LEVELS.SERIALIZABLE
-            });
-            try {
-                // Получаем дуэль и проверяем ее существование
-                const duel = await dbContext.models.Duel.findByPk(duelId, { transaction });
-                if (!duel) {
-                    throw new Error('Дуэль не найдена');
-                }
-    
-                // Обновляем статус дуэли на "отклонено"
-                await duel.update({ status: 'declined', isAutoDeclined }, { transaction });
-    
-                // Если дуэль отклонена автоматически, присваиваем место инициатору
-                if (isAutoDeclined) {
-                    // Очищаем предыдущие места обоих игроков
-                    await dbContext.models.Seat.update(
-                        { currentUser: null },
+        const retryOperation = require('../utils/retryOperation');
+        const { Op } = require('sequelize');
+
+        try {
+            return await retryOperation(async () => {
+                let transaction;
+                try {
+                    transaction = await dbContext.sequelize.transaction({
+                        isolationLevel: Sequelize.Transaction.ISOLATION_LEVELS.SERIALIZABLE
+                    });
+
+                    // Получаем дуэль и проверяем ее существование
+                    const duel = await dbContext.models.Duel.findByPk(duelId, { transaction });
+                    if (!duel) {
+                        throw new Error('Дуэль не найдена');
+                    }
+
+                    // Если дуэль уже отклонена или завершена, возвращаем успешный результат
+                    if (duel.status === 'declined' || duel.status === 'completed' || duel.status === 'timeout') {
+                        await transaction.commit();
+                        return {
+                            success: true,
+                            duel,
+                            updatedSeats: await dbContext.models.Seats.findAll()
+                        };
+                    }
+
+                    // Обновляем статус дуэли на "отклонено"
+                    await duel.update({ status: 'declined', isAutoDeclined }, { transaction });
+
+                    // Сначала очищаем все места обоих игроков
+                    await dbContext.models.Seats.update(
+                        { 
+                            occupiedBy: null,
+                            status: 'available'
+                        },
                         {
-                            where: { userId: { [Op.in]: [duel.player1, duel.player2] } },
+                            where: { occupiedBy: { [Op.in]: [duel.player1, duel.player2] } },
                             transaction
                         }
                     );
-    
-                    // Присваиваем оспариваемое место инициатору дуэли
-                    const [updatedRowsCount, updatedSeats] = await dbContext.models.Seat.update(
-                        { currentUser: duel.player1 },
+
+                    // Затем присваиваем оспариваемое место инициатору дуэли
+                    const updatedSeat = await dbContext.models.Seats.update(
+                        { 
+                            occupiedBy: duel.player1,
+                            status: 'dueled'
+                        },
                         {
                             where: { id: duel.seatId },
-                            returning: true, // Чтобы получить обновленные строки
+                            returning: true,
                             transaction
                         }
                     );
-    
-                    // Если ни одна строка не была обновлена
-                    if (updatedRowsCount === 0) {
-                        throw new Error('Не удалось обновить место');
-                    }
-    
-                    // Возвращаем обновленные места
-                    const updatedSeat = updatedSeats[0];
-    
+
+                    // Обновляем информацию о текущих местах пользователей
+                    await Promise.all([
+                        dbContext.models.User.update(
+                            { currentSeat: duel.seatId },
+                            {
+                                where: { telegramId: duel.player1 },
+                                transaction
+                            }
+                        ),
+                        dbContext.models.User.update(
+                            { currentSeat: null },
+                            {
+                                where: { telegramId: duel.player2 },
+                                transaction
+                            }
+                        )
+                    ]);
+
                     await transaction.commit();
-                    return { duel, updatedSeats: [updatedSeat] };
+                    
+                    // Получаем обновленный список мест
+                    const updatedSeats = await dbContext.models.Seats.findAll();
+                    
+                    return {
+                        success: true,
+                        duel,
+                        updatedSeats
+                    };
+
+                } catch (error) {
+                    // Проверяем, не была ли транзакция уже завершена
+                    if (transaction && !transaction.finished) {
+                        await transaction.rollback();
+                    }
+                    throw error;
                 }
-    
-                await transaction.commit();
-                return { duel, updatedSeats: [] };
-            } catch (error) {
-                console.error('Ошибка при отклонении дуэли:', error);
-                await transaction.rollback();
-                throw error;
-            }
-        };
-    
-        try {
-            return await DuelService.retryOperation(performDecline, 5, 1000);
+            });
         } catch (error) {
             console.error('Ошибка при отклонении дуэли:', error);
-            throw error;
+            return {
+                success: false,
+                message: error.message || 'Произошла ошибка при отклонении дуэли'
+            };
         }
     }
     
@@ -610,25 +658,35 @@ class DuelService {
             try {
                 const sixtySecondsAgo = new Date(Date.now() - 60000);
 
-                const [updatedCount] = await dbContext.models.Duel.update(
-                    { status: 'declined' },
-                    {
-                        where: {
-                            status: 'pending',
-                            createdAt: { [Op.lt]: sixtySecondsAgo }
-                        },
-                        transaction
+                // Сначала находим все дуэли, которые нужно обновить
+                const duelsToUpdate = await dbContext.models.Duel.findAll({
+                    where: {
+                        status: 'pending',
+                        createdAt: { [Op.lt]: sixtySecondsAgo }
+                    },
+                    transaction
+                });
+
+                // Обновляем каждую дуэль через declineDuel для правильной обработки
+                for (const duel of duelsToUpdate) {
+                    try {
+                        await this.declineDuel(duel.id, true);
+                    } catch (error) {
+                        console.error(`Error declining duel ${duel.id} on timeout:`, error);
                     }
-                );
+                }
 
                 await transaction.commit();
-                return updatedCount;
+                return duelsToUpdate.length;
             } catch (updateError) {
-                await transaction.rollback();
+                if (!transaction.finished) {
+                    await transaction.rollback();
+                }
                 throw updateError;
             }
         } catch (error) {
-            throw error;
+            console.error('Error in checkTimeoutDuels:', error);
+            return 0;
         }
     }
     static initTimeoutCheck() {
