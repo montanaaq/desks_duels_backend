@@ -38,6 +38,18 @@ class Seats extends Model {
                 type: DataTypes.INTEGER,
                 allowNull: false
             },
+            hasPendingDuel: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: false
+            },
+            pendingDuelInitiator: {
+                type: DataTypes.STRING,
+                allowNull: true
+            },
+            pendingDuelTarget: {
+                type: DataTypes.STRING,
+                allowNull: true
+            }
         }, {
             sequelize,
             modelName: 'Seats',

@@ -212,6 +212,30 @@ router.get('/timed-out', async (req, res) => {
 });
 
 /**
+ * Маршрут для получения активной дуэли пользователя
+ * Метод: GET
+ * Путь: /duels/active/:userId
+ */
+router.get('/active/:userId', async (req, res) => {
+    const { userId } = req.params;
+    
+    if (!userId) {
+        return res.status(400).json({ error: 'ID пользователя обязателен' });
+    }
+
+    try {
+        const activeDuel = await DuelService.getActiveDuelForUser(userId);
+        res.status(200).json({ duel: activeDuel });
+    } catch (error) {
+        console.error('Ошибка при получении активной дуэли:', error);
+        res.status(500).json({ 
+            error: 'Не удалось получить активную дуэль', 
+            details: error.message 
+        });
+    }
+});
+
+/**
  * Маршрут для отклонения дуэли
  * Метод: POST
  * Путь: /duels/decline/:duelId

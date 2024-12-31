@@ -759,6 +759,41 @@ class DuelService {
             throw error;
         }
     }
+
+    /**
+     * Получить активную дуэль пользователя
+     * @param {string} userId - Telegram ID пользователя
+     * @returns {Promise<Duel|null>} - Активная дуэль или null
+     */
+    static async getActiveDuelForUser(userId) {
+        try {
+            // Находим активную дуэль, где пользователь является либо player1, либо player2
+            const activeDuel = await dbContext.models.Duel.findOne({
+                where: {
+                    [Op.or]: [
+                        { player1: userId },
+                        { player2: userId }
+                    ],
+                    status: {
+                        [Op.in]: ['pending', 'accepted']
+                    }
+                },
+                include: [
+                    {
+                        model: dbContext.models.Seats,
+                        as: 'seat',
+                        attributes: ['id', 'status', 'occupiedBy']
+                    }
+                ],
+                order: [['createdAt', 'DESC']]
+            });
+
+            return activeDuel;
+        } catch (error) {
+            console.error('Ошибка при получении активной дуэли:', error);
+            throw error;
+        }
+    }
 }
 
 module.exports = DuelService;
