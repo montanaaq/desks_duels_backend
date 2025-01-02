@@ -173,6 +173,58 @@ io.on("connection", (socket) => {
       const duel = await DuelService.requestDuel(challengerId, challengedId, seatId);
       const challengerName = await getUserByTelegramId(duel.challengerId)
       const challengedName = await getUserByTelegramId(duel.challengedId)
+      socket.on("duelRequest", async (data) => {
+  try {
+    const { challengerId, challengedId, seatId } = data;
+
+    // Remove challengerName and challengedName from validation since they're not in the data
+    if (!challengerId || !challengedId || !seatId) {
+      socket.emit('error', { message: 'Invalid duel request data.' });
+      return;
+    }
+
+    const duel = await DuelService.requestDuel(challengerId, challengedId, seatId);
+    
+    // Get user names after duel creation
+    const challenger = await getUserByTelegramId(challengerId);
+    const challenged = await getUserByTelegramId(challengedId);
+
+    if (!challenger || !challenged) {
+      throw new Error('Could not find user information');
+    }
+
+    // Debug log before emission
+    console.log(`Emitting duelRequest to room ${challengedId}:`, {
+      duelId: duel.id,
+      challengerId: duel.player1,
+      challengedId: duel.player2,
+      seatId: duel.seatId,
+      challengerName: challenger.name,
+      challengedName: challenged.name,
+    });
+
+    // Emission to the challenged player's room
+    io.to(challengedId).emit("duelRequest", {
+      duelId: duel.id,
+      challengerId: duel.player1,
+      challengedId: duel.player2,
+      seatId: duel.seatId,
+      challengerName: challenger.name,
+      challengedName: challenged.name,
+    });
+
+    // Confirmation to challenger
+    io.to(challengerId).emit("duelRequestSent", { 
+      duelId: duel.id, 
+      challengedId, 
+      seatId 
+    });
+
+  } catch (error) {
+    console.error("Ошибка при обработке duelRequest:", error);
+    socket.emit('error', { message: 'Failed to process duel request' });
+  }
+});
   
       // Debug log before emission
       console.log(`Emitting duelRequest to room ${challengedId}:`, {
