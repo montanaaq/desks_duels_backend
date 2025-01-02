@@ -31,6 +31,8 @@ const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
+    credentials: true,
+    allowedHeaders: ["*"]
   },
 });
 
@@ -161,14 +163,25 @@ io.on("connection", (socket) => {
   socket.on("duelRequest", async (data) => {
     try {
       const { challengerId, challengedId, seatId, challengerName, challengedName } = data;
-
+  
       if (!challengerId || !challengedId || !seatId || !challengerName || !challengedName) {
         socket.emit('error', { message: 'Invalid duel request data.' });
         return;
       }
-
+  
       const duel = await DuelService.requestDuel(challengerId, challengedId, seatId);
-
+  
+      // Debug log before emission
+      console.log(`Emitting duelRequest to room ${challengedId}:`, {
+        duelId: duel.id,
+        challengerId: duel.player1,
+        challengedId: duel.player2,
+        seatId: duel.seatId,
+        challengerName,
+        challengedName,
+      });
+  
+      // Emission to the challenged player's room
       io.to(challengedId).emit("duelRequest", {
         duelId: duel.id,
         challengerId: duel.player1,
@@ -177,13 +190,31 @@ io.on("connection", (socket) => {
         challengerName,
         challengedName,
       });
-
-      io.to(challengerId).emit("duelRequestSent", { duelId: duel.id, challengedId, seatId });
+  
+      // Confirmation to challenger
+      io.to(challengerId).emit("duelRequestSent", { 
+        duelId: duel.id, 
+        challengedId, 
+        seatId 
+      });
+  
+      // Specific broadcast for bot
+      io.emit("botDuelRequest", {
+        duelId: duel.id,
+        challengedId: duel.player2,
+        challengerId: duel.player1,
+        seatId: duel.seatId,
+        challengerName,
+        challengedName
+      });
+  
     } catch (error) {
-      socket.emit('error', { message: error.message || 'Failed to create duel request.' });
+      console.error("Ошибка при обработке duelRequest:", error);
+      socket.emit('error', { message: 'Failed to process duel request' });
     }
   });
-
+  
+  
   socket.on("acceptDuel", async (data) => {
     try {
       const { duelId } = data;
