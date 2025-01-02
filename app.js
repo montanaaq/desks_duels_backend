@@ -21,6 +21,7 @@ const usersRouter = require('./routes/users');
 const seatsRouter = require('./routes/seats');
 const duelsRouter = require('./routes/duels');
 const authRoutes = require('./routes/authRoutes');
+const { getUserByTelegramId } = require('./services/authService');
 
 app.use(cors());
 app.use(express.json());
@@ -162,7 +163,7 @@ io.on("connection", (socket) => {
 
   socket.on("duelRequest", async (data) => {
     try {
-      const { challengerId, challengedId, seatId, challengerName, challengedName } = data;
+      const { challengerId, challengedId, seatId } = data;
   
       if (!challengerId || !challengedId || !seatId || !challengerName || !challengedName) {
         socket.emit('error', { message: 'Invalid duel request data.' });
@@ -170,6 +171,8 @@ io.on("connection", (socket) => {
       }
   
       const duel = await DuelService.requestDuel(challengerId, challengedId, seatId);
+      const challengerName = await getUserByTelegramId(duel.challengerId)
+      const challengedName = await getUserByTelegramId(duel.challengedId)
   
       // Debug log before emission
       console.log(`Emitting duelRequest to room ${challengedId}:`, {
@@ -177,8 +180,8 @@ io.on("connection", (socket) => {
         challengerId: duel.player1,
         challengedId: duel.player2,
         seatId: duel.seatId,
-        challengerName,
-        challengedName,
+        challengerName: challengerName,
+        challengedName: challengedName,
       });
   
       // Emission to the challenged player's room
@@ -187,8 +190,8 @@ io.on("connection", (socket) => {
         challengerId: duel.player1,
         challengedId: duel.player2,
         seatId: duel.seatId,
-        challengerName,
-        challengedName,
+        challengerName: challengerName,
+        challengedName: challengedName,
       });
   
       // Confirmation to challenger
@@ -196,16 +199,6 @@ io.on("connection", (socket) => {
         duelId: duel.id, 
         challengedId, 
         seatId 
-      });
-  
-      // Specific broadcast for bot
-      io.emit("botDuelRequest", {
-        duelId: duel.id,
-        challengedId: duel.player2,
-        challengerId: duel.player1,
-        seatId: duel.seatId,
-        challengerName,
-        challengedName
       });
   
     } catch (error) {
