@@ -15,60 +15,31 @@ class DuelService {
      * @returns {Promise<Duel>} - Созданный или существующий объект дуэли.
      */
     static async requestDuel(player1, player2, seatId) {
-        const transaction = await dbContext.sequelize.transaction();
-
         try {
-            if (!player1 || !player2 || !seatId) {
-                throw new Error('player1, player2 и seatId обязательны.');
-            }
-
-            // Получаем место с блокировкой для предотвращения одновременных изменений
-            const seat = await dbContext.models.Seats.findByPk(seatId, {
-                transaction,
-                lock: transaction.LOCK.UPDATE,
-            });
-
-            if (!seat) throw new Error('Место не найдено.');
-            if (!seat.occupiedBy) throw new Error('Место не занято.');
-            if (seat.status === 'dueled') throw new Error('Место уже участвовало в дуэли.');
-
-            // Проверяем, есть ли уже активная дуэль для этого места
+            // Проверяем, нет ли уже активной дуэли за это место
             const existingDuel = await dbContext.models.Duel.findOne({
                 where: {
                     seatId,
-                    status: { [Op.in]: ['pending', 'accepted'] },
-                },
-                transaction,
-                lock: transaction.LOCK.UPDATE,
+                    status: 'pending'
+                }
             });
 
             if (existingDuel) {
-                await transaction.commit();
-                return existingDuel;
+                throw new Error("За это место уже идет дуэль");
             }
 
-            // Создаем новую дуэль со статусом 'pending'
+            // Создаем новую дуэль
             const duel = await dbContext.models.Duel.create({
                 player1,
                 player2,
                 seatId,
                 status: 'pending',
-            }, { transaction });
-
-            await transaction.commit();
-
-            // Запланируйте задание таймаута
-            this.scheduleDuelTimeout(duel.id, player1, player2, seatId);
+                createdAt: new Date()
+            });
 
             return duel;
         } catch (error) {
-            if (transaction.finished !== 'commit' && transaction.finished !== 'rollback') {
-                try {
-                    await transaction.rollback();
-                } catch (rollbackError) {
-                    console.log(rollbackError)
-                }
-            }
+            console.error("Ошибка в DuelService.requestDuel:", error);
             throw error;
         }
     }

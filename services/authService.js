@@ -85,29 +85,29 @@ const deleteUser = async (telegramId) => {
 
     try {
         // 1. Delete all duels associated with this user
-        await Duel.destroy({ 
-            where: { 
+        await Duel.destroy({
+            where: {
                 [Op.or]: [
                     { player1: telegramId },
                     { player2: telegramId }
-                ] 
+                ]
             },
-            transaction 
+            transaction
         });
 
         // 2. Update seats occupied by this user
         await Seats.update(
-            { occupiedBy: null, status: 'available' }, 
-            { 
+            { occupiedBy: null, status: 'available' },
+            {
                 where: { occupiedBy: telegramId },
-                transaction 
+                transaction
             }
         );
 
         // 3. Delete the user
-        const deletedUserCount = await User.destroy({ 
+        const deletedUserCount = await User.destroy({
             where: { telegramId },
-            transaction 
+            transaction
         });
 
         // Commit the transaction
