@@ -163,48 +163,40 @@ io.on("connection", (socket) => {
 
   socket.on("duelRequest", async (data) => {
     try {
-      console.log("Получен запрос на дуэль:", data);
-
-      // Проверяем наличие всех необходимых данных
-      if (!data.challengerId || !data.challengedId || !data.seatId) {
-        throw new Error("Отсутствуют необходимые данные для дуэли");
+      const { challengerId, challengedId, seatId } = data;
+  
+      if (!challengerId || !challengedId || !seatId || !challengerName || !challengedName) {
+        socket.emit('error', { message: 'Invalid duel request data.' });
+        return;
       }
+  
+      const duel = await DuelService.requestDuel(challengerId, challengedId, seatId);
+      const challenger = await getUserByTelegramId(duel.challengerId)
+      const challenged = await getUserByTelegramId(duel.challengedId)
 
-      // Создаем дуэль
-      const duel = await DuelService.requestDuel(
-        data.challengerId, 
-        data.challengedId, 
-        data.seatId
-      );
-
-      if (!duel) {
-        throw new Error("Не удалось создать дуэль");
-      }
-
-      // Отправляем уведомление о дуэли
-      io.emit("duelRequest", {
+      // Emission to the challenged player's room
+      io.to(challengedId).emit("duelRequest", {
         duelId: duel.id,
-        challengerId: data.challengerId,
-        challengedId: data.challengedId,
-        seatId: data.seatId,
-        challengerName: data.challengerName,
-        challengedName: data.challengedName,
-        createdAt: duel.createdAt
+        challengerId: duel.player1,
+        challengedId: duel.player2,
+        seatId: duel.seatId,
+        challengerName: challenger.name,
+        challengedName: challenged.name,
       });
-
-      // Отправляем подтверждение создателю дуэли
-      socket.emit("duelRequestSuccess", {
-        message: "Дуэль запрошена. У противника есть 1 минута для принятия дуэли, после чего дуэль будет завершена.",
-        duel
+  
+      // Confirmation to challenger
+      io.to(challengerId).emit("duelRequestSent", { 
+        duelId: duel.id, 
+        challengedId, 
+        seatId 
       });
-
+  
     } catch (error) {
-      console.error("Ошибка при обработке запроса на дуэль:", error);
-      socket.emit("duelRequestError", {
-        message: error.message || "Failed to process duel request"
-      });
+      console.error("Ошибка при обработке duelRequest:", error);
+      socket.emit('error', { message: 'Failed to process duel request' });
     }
   });
+  
   
   
   socket.on("acceptDuel", async (data) => {
