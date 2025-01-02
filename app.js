@@ -163,35 +163,35 @@ io.on("connection", (socket) => {
 
   socket.on("duelRequest", async (data) => {
     try {
-      const { challengerId, challengedId, seatId, challengerName, challengedName } = data;
+      console.log("Received duel request data:", data);
+      const { challengerId, challengedId, seatId, challengerName, challengedName, duelId, createdAt } = data;
   
-      if (!challengerId || !challengedId || !seatId || !challengerName || !challengedName) {
+      if (!challengerId || !challengedId || !seatId) {
         socket.emit('error', { message: 'Invalid duel request data.' });
         return;
       }
-  
-      const duel = await DuelService.requestDuel(challengerId, challengedId, seatId);
 
-      // Emission to the challenged player's room
+      // Emit directly to the challenged player's room since duel is already created
       io.to(challengedId).emit("duelRequest", {
-        duelId: duel.id,
-        challengerId: duel.player1,
-        challengedId: duel.player2,
-        seatId: duel.seatId,
-        challengerName: challengerName,
-        challengedName: challengedName,
+        duelId,
+        challengerId,
+        challengedId,
+        seatId,
+        challengerName,
+        challengedName,
+        createdAt
       });
   
       // Confirmation to challenger
       io.to(challengerId).emit("duelRequestSent", { 
-        duelId: duel.id, 
+        duelId, 
         challengedId, 
         seatId 
       });
   
     } catch (error) {
       console.error("Ошибка при обработке duelRequest:", error);
-      socket.emit('error', { message: 'Failed to process duel request' });
+      socket.emit('error', { message: error.message || 'Failed to process duel request' });
     }
   });
   
