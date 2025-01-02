@@ -163,7 +163,7 @@ io.on("connection", (socket) => {
 
   socket.on("duelRequest", async (data) => {
     try {
-      const { challengerId, challengedId, seatId } = data;
+      const { challengerId, challengedId, seatId, challengerName, challengedName } = data;
   
       if (!challengerId || !challengedId || !seatId || !challengerName || !challengedName) {
         socket.emit('error', { message: 'Invalid duel request data.' });
@@ -171,8 +171,6 @@ io.on("connection", (socket) => {
       }
   
       const duel = await DuelService.requestDuel(challengerId, challengedId, seatId);
-      const challenger = await getUserByTelegramId(duel.challengerId)
-      const challenged = await getUserByTelegramId(duel.challengedId)
 
       // Emission to the challenged player's room
       io.to(challengedId).emit("duelRequest", {
@@ -180,8 +178,8 @@ io.on("connection", (socket) => {
         challengerId: duel.player1,
         challengedId: duel.player2,
         seatId: duel.seatId,
-        challengerName: challenger.name,
-        challengedName: challenged.name,
+        challengerName: challengerName,
+        challengedName: challengedName,
       });
   
       // Confirmation to challenger
