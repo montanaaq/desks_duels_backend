@@ -265,19 +265,32 @@ io.on("connection", (socket) => {
 
       // Находим информацию о пользователях
       const initiator = await User.findOne({ where: { telegramId: duel.player1 } });
-      const initiatorName = initiator ? initiator.name : 'Неизвестный игрок';
+      const opponent = await User.findOne({ where: { telegramId: duel.player2 } });
 
-      // Отправляем уведомление об отклонении дуэли только тому, кто отклонил
-      io.to(duel.player2).emit("duelDeclined", {
+      // Отправляем уведомление об отклонении дуэли обоим участникам
+      io.to(duel.player1).emit("duelDeclined", {
         duelId: duel.id,
         challengedId: duel.player2,
-        challengerName: initiatorName,
-        message: `${initiatorName} занял место #${duel.seatId}, так как вы отклонили дуэль.`,
+        message: `Вы заняли место, так как ${opponent?.name || 'оппонент'} отклонил дуэль.`,
+        challengerName: initiator?.name || 'Инициатор',
+        challengedName: opponent?.name || 'Оппонент',
         duel: {
           seatId: duel.seatId,
           player1: duel.player1,
-          player2: duel.player2,
-          challengerName: initiatorName
+          player2: duel.player2
+        }
+      });
+
+      io.to(duel.player2).emit("duelDeclined", {
+        duelId: duel.id,
+        challengedId: duel.player2,
+        message: `${initiator?.name || 'Инициатор'} занял место #${duel.seatId}, так как вы отклонили дуэль.`,
+        challengerName: initiator?.name || 'Инициатор',
+        challengedName: opponent?.name || 'Оппонент',
+        duel: {
+          seatId: duel.seatId,
+          player1: duel.player1,
+          player2: duel.player2
         }
       });
     } catch (error) {
